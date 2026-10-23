@@ -82,6 +82,35 @@ test('successful installs and ordinary failures settle once with their exit code
   }
 })
 
+test('dependency download failures retry once and preserve the final exit code', async (t) => {
+  for (const message of ['TypeError: fetch failed', 'npm error code EAI_AGAIN'])
+    for (const repeated of [false, true]) {
+      const install = fixture(
+        t,
+        `if (attempt === 1 || ${repeated}) {
+  process.stderr.write(${JSON.stringify(message.slice(0, 12))})
+  setTimeout(() => {
+    console.error(${JSON.stringify(message.slice(12))})
+    process.exit(23)
+  }, 10)
+}`,
+      )
+      assert.equal(await install.run(), repeated ? 23 : 0)
+      assert.equal(install.attempts().length, 2)
+      assert.match(
+        install.messages.join('\n'),
+        /download failed; retrying once/,
+      )
+    }
+})
+
+test('a recovered download warning does not retry a successful install', async (t) => {
+  const install = fixture(t, "console.error('npm warn EAI_AGAIN recovered')")
+  assert.equal(await install.run(), 0)
+  assert.equal(install.attempts().length, 1)
+  assert.deepEqual(install.messages, [])
+})
+
 test('a missing install command fails without retrying', async (t) => {
   const messages = []
   t.mock.method(console, 'error', (message) => messages.push(message))

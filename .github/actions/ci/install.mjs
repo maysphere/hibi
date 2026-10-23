@@ -76,6 +76,18 @@ export async function installDependencies({
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     })
+    let downloadFailed = false,
+      outputTail = ''
+    const inspect = (chunk) => {
+      const output = outputTail + chunk
+      downloadFailed ||=
+        /TypeError: fetch failed|\b(?:EAI_AGAIN|ENOTFOUND|ECONNRESET|ETIMEDOUT)\b/.test(
+          output,
+        )
+      outputTail = output.slice(-128)
+    }
+    child.stdout?.on('data', inspect)
+    child.stderr?.on('data', inspect)
     child.stdout?.pipe(process.stdout, { end: false })
     child.stderr?.pipe(process.stderr, { end: false })
     let timedOut = false,
@@ -151,7 +163,13 @@ export async function installDependencies({
       process.off('SIGTERM', terminate)
     }
     if (canceled) return canceled
-    if (!timedOut) return code
+    if (!timedOut) {
+      if (code === 0 || !downloadFailed || attempt === 2) return code
+      console.error(
+        'npm ci dependency download failed; retrying once with the existing caches.',
+      )
+      continue
+    }
     if (attempt === 1)
       console.error('npm ci hung; retrying once with the existing caches.')
   }
