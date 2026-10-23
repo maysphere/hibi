@@ -90,8 +90,11 @@ test('dependency download failures retry once and preserve the final exit code',
         `if (attempt === 1 || ${repeated}) {
   process.stderr.write(${JSON.stringify(message.slice(0, 12))})
   setTimeout(() => {
-    console.error(${JSON.stringify(message.slice(12))})
-    process.exit(23)
+    console.log('checking cached files')
+    setTimeout(() => {
+      console.error(${JSON.stringify(message.slice(12))})
+      process.exit(23)
+    }, 10)
   }, 10)
 }`,
       )
@@ -102,6 +105,21 @@ test('dependency download failures retry once and preserve the final exit code',
         /download failed; retrying once/,
       )
     }
+})
+
+test('a download failure followed by a hang still stops after two attempts', async (t) => {
+  const install = fixture(
+    t,
+    `if (attempt === 1) {
+  console.error('TypeError: fetch failed')
+  process.exit(23)
+}
+setInterval(() => {}, 1000)`,
+  )
+  assert.equal(await install.run(), 124)
+  assert.equal(install.attempts().length, 2)
+  await gone(install.attempts()[1])
+  assert.match(install.messages.at(-1), /hung on its final attempt/)
 })
 
 test('a recovered download warning does not retry a successful install', async (t) => {
@@ -156,7 +174,7 @@ test('two hung installs stop with 124 after exactly one retry', async (t) => {
   assert.equal(await install.run(), 124)
   assert.equal(install.attempts().length, 2)
   for (const pid of install.attempts()) await gone(pid)
-  assert.match(install.messages.at(-1), /hung on both attempts/)
+  assert.match(install.messages.at(-1), /hung on its final attempt/)
 })
 
 test('a descendant retaining output after npm exits still times out and is killed', {
